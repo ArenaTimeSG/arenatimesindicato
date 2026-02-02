@@ -116,24 +116,53 @@ export const useAppointments = () => {
         throw new Error('Usuário não autenticado');
       }
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
+      // ✅ SOLUÇÃO: Paginação para buscar todos os registros
+      let allAppointments: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      let error: any = null;
+
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (pageError) {
+          console.error('❌ Erro ao buscar agendamentos:', pageError);
+          error = pageError;
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allAppointments = [...allAppointments, ...pageData];
+          from += pageSize;
+          // Se retornou menos que pageSize, não há mais dados
+          hasMore = pageData.length === pageSize;
+        } else {
+          // Se não retornou dados, não há mais páginas
+          hasMore = false;
+        }
+
+        // Proteção contra loop infinito (máximo 10 páginas = 10.000 registros)
+        if (from >= pageSize * 10) {
+          console.warn('⚠️ Limite de paginação atingido (10.000 registros)');
+          hasMore = false;
+        }
+      }
 
       if (error) {
-        console.error('❌ Erro ao buscar agendamentos:', error);
         throw error;
       }
 
-
-
       // Buscar dados relacionados de forma otimizada
-      const { clientsMap, modalitiesMap } = await fetchRelatedData(data || []);
+      const { clientsMap, modalitiesMap } = await fetchRelatedData(allAppointments);
 
       // Combinar dados de forma mais eficiente
-      return (data || []).map((appointment) => {
+      return allAppointments.map((appointment) => {
         const clientData = appointment.client_id ? clientsMap.get(appointment.client_id) : null;
         const modalityData = appointment.modality_id ? modalitiesMap.get(appointment.modality_id) : null;
 
@@ -156,24 +185,55 @@ export const useAppointments = () => {
       throw new Error('Usuário não autenticado');
     }
 
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('user_id', user.id)
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date');
+    // ✅ SOLUÇÃO: Paginação para buscar todos os registros do período
+    let allAppointments: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    let error: any = null;
+
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date')
+        .range(from, from + pageSize - 1);
+
+      if (pageError) {
+        console.error('❌ Erro ao buscar agendamentos por período:', pageError);
+        error = pageError;
+        break;
+      }
+
+      if (pageData && pageData.length > 0) {
+        allAppointments = [...allAppointments, ...pageData];
+        from += pageSize;
+        // Se retornou menos que pageSize, não há mais dados
+        hasMore = pageData.length === pageSize;
+      } else {
+        // Se não retornou dados, não há mais páginas
+        hasMore = false;
+      }
+
+      // Proteção contra loop infinito (máximo 10 páginas = 10.000 registros)
+      if (from >= pageSize * 10) {
+        console.warn('⚠️ Limite de paginação atingido (10.000 registros)');
+        hasMore = false;
+      }
+    }
 
     if (error) {
-      console.error('❌ Erro ao buscar agendamentos por período:', error);
       throw error;
     }
 
     // Usar a mesma função otimizada para buscar dados relacionados
-    const { clientsMap, modalitiesMap } = await fetchRelatedData(data || []);
+    const { clientsMap, modalitiesMap } = await fetchRelatedData(allAppointments);
 
     // Combinar dados de forma mais eficiente
-    return (data || []).map((appointment) => {
+    return allAppointments.map((appointment) => {
       const clientData = appointment.client_id ? clientsMap.get(appointment.client_id) : null;
       const modalityData = appointment.modality_id ? modalitiesMap.get(appointment.modality_id) : null;
 

@@ -122,27 +122,58 @@ const Dashboard = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          date,
-          status,
-          modality,
-          recurrence_id,
-          user_id,
-          client:booking_clients(name)
-        `)
-        .gte('date', weekStart.toISOString())
-        .lte('date', weekEnd.toISOString())
-        .order('date');
+      // ✅ SOLUÇÃO: Paginação para buscar todos os agendamentos da semana
+      let allAppointments: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      let error: any = null;
+
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('appointments')
+          .select(`
+            id,
+            date,
+            status,
+            modality,
+            recurrence_id,
+            user_id,
+            client:booking_clients(name)
+          `)
+          .gte('date', weekStart.toISOString())
+          .lte('date', weekEnd.toISOString())
+          .order('date')
+          .range(from, from + pageSize - 1);
+
+        if (pageError) {
+          console.error('🔍 Dashboard - Erro no join com clients:', pageError);
+          error = pageError;
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allAppointments = [...allAppointments, ...pageData];
+          from += pageSize;
+          // Se retornou menos que pageSize, não há mais dados
+          hasMore = pageData.length === pageSize;
+        } else {
+          // Se não retornou dados, não há mais páginas
+          hasMore = false;
+        }
+
+        // Proteção contra loop infinito (máximo 10 páginas = 10.000 registros)
+        if (from >= pageSize * 10) {
+          console.warn('⚠️ Limite de paginação atingido (10.000 registros)');
+          hasMore = false;
+        }
+      }
 
       if (error) {
-        console.error('🔍 Dashboard - Erro no join com clients:', error);
         throw error;
       }
 
-      const processedData = data
+      const processedData = allAppointments
         .map(apt => ({
           ...apt,
           client: apt.client as any

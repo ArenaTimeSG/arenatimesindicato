@@ -58,14 +58,46 @@ const Clients = () => {
   const fetchClients = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('booking_clients')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('name');
+      
+      // ✅ SOLUÇÃO: Paginação para buscar todos os clientes
+      let allClients: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      let error: any = null;
+
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('booking_clients')
+          .select('*')
+          .eq('user_id', user?.id)
+          .order('name')
+          .range(from, from + pageSize - 1);
+
+        if (pageError) {
+          error = pageError;
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allClients = [...allClients, ...pageData];
+          from += pageSize;
+          // Se retornou menos que pageSize, não há mais dados
+          hasMore = pageData.length === pageSize;
+        } else {
+          // Se não retornou dados, não há mais páginas
+          hasMore = false;
+        }
+
+        // Proteção contra loop infinito (máximo 10 páginas = 10.000 registros)
+        if (from >= pageSize * 10) {
+          console.warn('⚠️ Limite de paginação atingido (10.000 registros)');
+          hasMore = false;
+        }
+      }
 
       if (error) throw error;
-      setClients(data || []);
+      setClients(allClients);
     } catch (error: any) {
       toast({
         title: 'Erro ao carregar clientes',

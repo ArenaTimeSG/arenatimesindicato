@@ -48,21 +48,53 @@ export const useClientBookings = (adminUserId?: string) => {
     queryFn: async () => {
       if (!adminUserId) return [];
 
-      // Buscar agendamentos primeiro (incluindo os sem cliente)
-      const { data: appointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('user_id', adminUserId)
-        .order('date', { ascending: true });
+      // ✅ SOLUÇÃO: Paginação para buscar todos os agendamentos
+      let allAppointments: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      let appointmentsError: any = null;
+
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('user_id', adminUserId)
+          .order('date', { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (pageError) {
+          console.error('Erro ao buscar agendamentos:', pageError);
+          appointmentsError = pageError;
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allAppointments = [...allAppointments, ...pageData];
+          from += pageSize;
+          // Se retornou menos que pageSize, não há mais dados
+          hasMore = pageData.length === pageSize;
+        } else {
+          // Se não retornou dados, não há mais páginas
+          hasMore = false;
+        }
+
+        // Proteção contra loop infinito (máximo 10 páginas = 10.000 registros)
+        if (from >= pageSize * 10) {
+          console.warn('⚠️ Limite de paginação atingido (10.000 registros)');
+          hasMore = false;
+        }
+      }
 
       if (appointmentsError) {
-        console.error('Erro ao buscar agendamentos:', appointmentsError);
         return [];
       }
 
-      if (!appointments || appointments.length === 0) {
+      if (!allAppointments || allAppointments.length === 0) {
         return [];
       }
+
+      const appointments = allAppointments;
 
       // Buscar dados dos clientes separadamente (apenas para agendamentos com client_id)
       const clientIds = appointments.map(apt => apt.client_id).filter(Boolean);
@@ -82,7 +114,7 @@ export const useClientBookings = (adminUserId?: string) => {
       }
 
       // Combinar dados
-      const data = appointments.map(appointment => {
+      const data = allAppointments.map(appointment => {
         let clientData = null;
         
         if (appointment.client_id) {
